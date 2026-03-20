@@ -6,9 +6,26 @@ import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
 
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
+const DEBUG_MESSAGE_PATTERN = /^\s*\[TUI\]/;
 
 function isSilentReplyStream(text: string): boolean {
   return SILENT_REPLY_PATTERN.test(text);
+}
+
+function isDebugMessage(message: unknown): boolean {
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+  const entry = message as Record<string, unknown>;
+  const role = typeof entry.role === "string" ? entry.role.toLowerCase() : "";
+  if (role !== "assistant") {
+    return false;
+  }
+  if (typeof entry.text === "string") {
+    return DEBUG_MESSAGE_PATTERN.test(entry.text);
+  }
+  const text = extractText(message);
+  return typeof text === "string" && DEBUG_MESSAGE_PATTERN.test(text);
 }
 /** Client-side defense-in-depth: detect assistant messages whose text is purely NO_REPLY. */
 function isAssistantSilentReply(message: unknown): boolean {
@@ -79,7 +96,9 @@ export async function loadChatHistory(state: ChatState) {
       },
     );
     const messages = Array.isArray(res.messages) ? res.messages : [];
-    state.chatMessages = messages.filter((message) => !isAssistantSilentReply(message));
+    state.chatMessages = messages.filter(
+      (message) => !isAssistantSilentReply(message) && !isDebugMessage(message),
+    );
     state.chatThinkingLevel = res.thinkingLevel ?? null;
     // Clear all streaming state — history includes tool results and text
     // inline, so keeping streaming artifacts would cause duplicates.
@@ -273,7 +292,11 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
   if (payload.runId && state.chatRunId && payload.runId !== state.chatRunId) {
     if (payload.state === "final") {
       const finalMessage = normalizeFinalAssistantMessage(payload.message);
-      if (finalMessage && !isAssistantSilentReply(finalMessage)) {
+      if (
+        finalMessage &&
+        !isAssistantSilentReply(finalMessage) &&
+        !isDebugMessage(finalMessage)
+      ) {
         state.chatMessages = [...state.chatMessages, finalMessage];
         return null;
       }
@@ -292,7 +315,11 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     }
   } else if (payload.state === "final") {
     const finalMessage = normalizeFinalAssistantMessage(payload.message);
-    if (finalMessage && !isAssistantSilentReply(finalMessage)) {
+    if (
+      finalMessage &&
+      !isAssistantSilentReply(finalMessage) &&
+      !isDebugMessage(finalMessage)
+    ) {
       state.chatMessages = [...state.chatMessages, finalMessage];
     } else if (state.chatStream?.trim() && !isSilentReplyStream(state.chatStream)) {
       state.chatMessages = [
@@ -309,7 +336,11 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     state.chatStreamStartedAt = null;
   } else if (payload.state === "aborted") {
     const normalizedMessage = normalizeAbortedAssistantMessage(payload.message);
-    if (normalizedMessage && !isAssistantSilentReply(normalizedMessage)) {
+    if (
+      normalizedMessage &&
+      !isAssistantSilentReply(normalizedMessage) &&
+      !isDebugMessage(normalizedMessage)
+    ) {
       state.chatMessages = [...state.chatMessages, normalizedMessage];
     } else {
       const streamedText = state.chatStream ?? "";
