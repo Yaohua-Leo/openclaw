@@ -1378,11 +1378,11 @@
 }
 
 .code-block-copy.copied .code-block-copy__idle {
-  display: none;
+  display: none !important;
 }
 
 .code-block-copy.copied .code-block-copy__done {
-  display: inline;
+  display: inline !important;
   color: var(--success, #22c55e);
 }
 
